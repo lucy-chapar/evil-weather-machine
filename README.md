@@ -17,7 +17,22 @@ On injection days it adds a beating trans-flag heart, with a green dot in the co
 
 ![Weather screens](firmware/weather/docs/preview-weather.png)
 
+### Shot day
+
+Shot day is a reminder for hormone injections: a shot every 3 days, alternating between the left and
+right side of the belly. That works out to exactly 10 shots in any 30 days.
+
+On a shot day, a screen joins the rotation: the trans-flag heart beats and sparkles, and a green dot sits
+in the bottom-left or bottom-right corner to show which side is next. On the other days nothing extra
+shows, so you only see it when it matters.
+
 ![Shot-day screens](firmware/weather/docs/preview-shot.png)
+
+The schedule runs purely from the calendar, so there's nothing to log or tap. It counts forward in
+3-day steps from one shot you set in [`config.h`](firmware/weather/src/config.h) (`LAST_SHOT_*`: the
+date and which side it was on), flipping sides each time. If a shot ends up a day late and the
+schedule shifts, set those to your latest shot and update the firmware. The toy gets the date from
+the internet, and once it has been online it keeps counting even without WiFi.
 
 Quick start, with [PlatformIO](https://platformio.org/) installed:
 
