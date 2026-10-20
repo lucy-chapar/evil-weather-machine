@@ -17,25 +17,34 @@ On injection days it adds a beating trans-flag heart, with a green dot in the co
 
 ![Weather screens](firmware/weather/docs/preview-weather.png)
 
-### Shot day 💉🏳️‍⚧️
+### Shot day
 
-It's E day, babe! Every third day the cube reminds you it's time for your estrogen shot. Sides
-alternate left and right on your belly, which works out to exactly ten shots in any 30 days, so
-your levels stay nice and steady.
+A reminder for injectable estradiol (HRT).
 
-On shot day a little extra screen slips into the rotation: a heart in the trans flag's blue, pink
-and white, beating and sparkling. A green dot in the bottom-left or bottom-right corner tells you
-which side it's for. On the other days it stays quiet and just does the weather, so it only shows
-up when it matters.
+**Schedule**
+- One injection every 3 days: 10 injections in any 30-day window.
+- The site alternates between the left and right side of the abdomen.
+- Shot days are calculated from the calendar. Nothing is logged on the device.
+
+**Display**
+- On a shot day, one extra screen is added to the rotation, after the rain chance.
+- It shows a heart in trans flag colours (blue, pink, white), beating, with white sparkle pixels around it.
+- A green 2×2 dot in the bottom-left or bottom-right corner marks the injection side: left or right.
+- On other days the screen is not shown.
 
 ![Shot-day screens](firmware/weather/docs/preview-shot.png)
 
-There's nothing to log or tap. You know when you've done it, and the cube just keeps the calendar.
-It counts forward in 3-day steps from one shot you set in
-[`config.h`](firmware/weather/src/config.h) (`LAST_SHOT_*`: the date and the side), flipping sides
-each time. If a shot runs a day late and your rhythm shifts, set those to your latest shot and push
-an update over WiFi. It gets the date from the internet, and once it's been online it keeps counting
-even when the WiFi doesn't. 💖
+**Configuration** ([`config.h`](firmware/weather/src/config.h))
+- `LAST_SHOT_YEAR`, `LAST_SHOT_MONTH`, `LAST_SHOT_DAY`: the date of one injection to count from.
+- `LAST_SHOT_SIDE`: the side of that injection, `'L'` or `'R'`.
+- `SHOT_EVERY_DAYS`: the interval, 3 by default.
+- If an injection is taken on a different day, the schedule does not adjust by itself. Set the values
+  above to the most recent injection and update the firmware.
+
+**Timekeeping**
+- The date comes from internet time (NTP), in the local timezone reported by the weather service.
+- After the first successful connection, the timezone is stored and the count continues without WiFi.
+  Internet time is still needed after each power cycle.
 
 Quick start, with [PlatformIO](https://platformio.org/) installed:
 
