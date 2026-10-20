@@ -1,0 +1,25 @@
+# Separate project kept in this folder locally (finder puck), not part of this repo
+/puck/
+/firmware/puck/
+/logs/
+/CLAUDE.local.md
+
+# Local tool settings
+/.claude/settings.local.json
+
+# PlatformIO build output
+.pio/
+
+# KiCad per-user and cache files
+*.kicad_prl
+fp-info-cache
+*-backups/
+_autosave-*
+*.lck
+
+# OS / editor
+.DS_Store
+__pycache__/
+
+# Firmware OTA password
+/firmware/weather/ota_password.ini

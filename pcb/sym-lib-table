@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name "DigitalSand")(type "KiCad")(uri "${KIPRJMOD}/lib/digital_sand.kicad_sym")(options "")(descr "Digital Sand project symbols"))
+)

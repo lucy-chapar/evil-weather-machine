@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name "DigitalSand")(type "KiCad")(uri "${KIPRJMOD}/lib/digital_sand.pretty")(options "")(descr "Digital Sand project footprints"))
+)
