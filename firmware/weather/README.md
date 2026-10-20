@@ -23,7 +23,8 @@ A shot every `SHOT_EVERY_DAYS` days (3: ten shots in any 30 days), alternating s
 the `LAST_SHOT_*` date and side in [src/config.h](src/config.h): Friday 16 Oct 2026, right side.
 It runs purely from the calendar, so there's nothing to log. If your schedule shifts, for example
 after a late shot, set those to your latest shot and reflash. Dates use internet time and the local
-timezone from the weather service. Once the toy has been online, it keeps tracking without WiFi.
+timezone from the weather service. If WiFi drops while the toy is on, it keeps counting; after a
+power cycle it needs internet time again, because the ESP32 has no battery-backed clock.
 
 ## Build and flash
 
