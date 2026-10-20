@@ -1,4 +1,4 @@
-# Digital Sand Toy
+# Evil Weather Machine
 
 A carrier PCB and new firmware for the [PrintKits Digital Sand kit](https://printkits.com/blogs/instructions/digital-sand):
 an ESP32 DevKit, a GY-521 accelerometer, an 8x8 WS2812B panel and a 4xAA box in a printed cube.

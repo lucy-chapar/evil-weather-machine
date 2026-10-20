@@ -1,4 +1,4 @@
-# Digital Sand Toy
+# Evil Weather Machine
 
 Carrier PCB and weather/shot-day firmware for the PrintKits Digital Sand kit. See `README.md`.
 Only `pcb/`, `firmware/weather/` and the top-level docs are in git; other folders here (the finder puck)
