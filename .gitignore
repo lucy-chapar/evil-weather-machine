@@ -1,7 +1,4 @@
-# Separate project kept in this folder locally (finder puck), not part of this repo
-/puck/
-/firmware/puck/
-/logs/
+# Local notes
 /CLAUDE.local.md
 
 # Local tool settings
