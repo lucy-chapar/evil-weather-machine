@@ -6,13 +6,13 @@
 
 #include <stdint.h>
 
-enum Effect : uint8_t { FX_NONE, FX_RAIN, FX_DRIZZLE, FX_SNOW, FX_STORM };
+enum Effect : uint8_t { FX_NONE, FX_RAIN, FX_DRIZZLE, FX_SNOW, FX_STORM, FX_MOON };
 
 struct Icon {
   const char* const* rows;  // frameCount * 8 rows
   uint8_t frameCount;
   uint16_t frameMs;
-  Effect effect;            // particles drawn below the cloud, rows 4-7
+  Effect effect;            // particles below the cloud (rows 4-7), or the moon under the art
 };
 
 // Palette: Y sun yellow, O sun orange, W cloud white, G cloud grey, D storm grey,
@@ -40,24 +40,27 @@ static const char* const ART_SUN[] = {
   "Y......Y",
 };
 
-static const char* const ART_MOON[] = {
-  "...MMM..",
-  "..MM....",
-  ".MM...S.",
-  ".MM.....",
-  ".MM.....",
-  ".MM.....",
-  "..MM....",
-  "...MMM..",
+// Night: the moon is drawn in code in its current phase (FX_MOON), under these.
+static const char* const ART_CLEAR_NIGHT[] = {
+  "........",
+  "........",
+  "........",
+  "........",
+  "........",
+  "........",
+  "........",
+  "........",
+};
 
-  "...MMM..",
-  "..MM....",
-  ".MM.....",
-  ".MM.....",
-  ".MM...S.",
-  ".MM.....",
-  "..MM....",
-  "...MMM..",
+static const char* const ART_NIGHT_CLOUD[] = {
+  "........",
+  "........",
+  "........",
+  "........",
+  ".WW.W...",
+  "WWWWWW..",
+  "WWWWWWW.",
+  ".GGGGG..",
 };
 
 // Sun peeking out behind a two-puff cloud.
@@ -217,7 +220,8 @@ static const char* const ART_ERROR[] = {
 #define ICON(art, ms, fx) Icon{art, sizeof(art) / sizeof(art[0]) / 8, ms, fx}
 
 static const Icon ICON_SUN = ICON(ART_SUN, 600, FX_NONE);
-static const Icon ICON_MOON = ICON(ART_MOON, 900, FX_NONE);
+static const Icon ICON_CLEAR_NIGHT = ICON(ART_CLEAR_NIGHT, 700, FX_MOON);
+static const Icon ICON_NIGHT_PARTLY = ICON(ART_NIGHT_CLOUD, 700, FX_MOON);
 static const Icon ICON_PARTLY = ICON(ART_PARTLY, 700, FX_NONE);
 static const Icon ICON_CLOUDY = ICON(ART_CLOUDY, 1200, FX_NONE);
 static const Icon ICON_DRIZZLE = ICON(ART_RAIN_CLOUD, 220, FX_DRIZZLE);

@@ -12,8 +12,10 @@ an ESP32 DevKit, a GY-521 accelerometer, an 8x8 WS2812B panel and a 4xAA box in 
 
 ## Firmware
 
-The panel flips through today's high and low temperature, an animated weather icon and the chance of rain.
-On injection days it adds a beating trans-flag heart, with a green dot in the corner for the side to use.
+The panel flips through the current temperature, an animated icon for the weather right now (the moon in
+its current phase at night), today's high and low, and the chance of rain when rain is likely in the next
+12 hours. On injection days it adds a beating trans-flag heart, with a green dot in the corner for the
+side to use.
 
 ![Weather screens](firmware/weather/docs/preview-weather.png)
 

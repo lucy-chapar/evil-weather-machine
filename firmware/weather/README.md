@@ -3,12 +3,15 @@
 Turns the Digital Sand toy into a daily weather display that also reminds you on injection days.
 The 8x8 panel flips through these screens:
 
-1. **High**: ▲ arrow over today's high temperature, coloured from blue (cold) to red (hot).
-2. **Low**: ▼ arrow over today's low temperature.
-3. **Weather**: an animated picture of today's weather.
-4. **Rain**: a raindrop that fills from the bottom with the chance of rain. A quarter full means 25%,
-   full means rain is certain, and an empty outline means a dry day.
-5. **Shot day** (only on injection days): a trans-flag heart that beats and sparkles. A green dot in
+1. **Now**: the current temperature, a number with no arrow, coloured from blue (cold) to red (hot).
+2. **Weather**: an animated picture of the weather right now. The sun only shows by day. At night,
+   clear and partly cloudy skies show the moon in its current phase.
+3. **High**: ▲ arrow over today's high temperature.
+4. **Low**: ▼ arrow over today's low temperature.
+5. **Rain** (only when it's likely): a raindrop that fills from the bottom with the highest chance of
+   rain or snow in the next 12 hours. A quarter full means 25%, full means certain. It's skipped
+   below 20%.
+6. **Shot day** (only on injection days): a trans-flag heart that beats and sparkles. A green dot in
    the bottom-left or bottom-right corner marks the side to use.
 
 Temperatures of 100° and above, or -10° and below, don't fit in 8 columns, so they scroll.
@@ -52,8 +55,9 @@ USB so the toy and the uploader agree. The demo build has no WiFi, so it can onl
 ### Demo
 
 To see every screen without waiting for the right weather or a shot day, flash the demo build.
-It loops through all the weather animations, sample temperatures (including ones that scroll), the rain
-drop at 0/25/50/100%, shot day on each side, and the setup, loading and error screens. It needs no WiFi.
+It loops through all the weather animations, the eight moon phases and a partly cloudy night, sample
+temperatures (including ones that scroll), the rain drop at 25/50/100%, shot day on each side, and the
+setup, loading and error screens. It needs no WiFi.
 Flash the normal build again afterwards:
 
 ```bash
@@ -83,28 +87,34 @@ ESPHome web installer, as in the kit instructions.
 | Hold while switching on | Forget the WiFi network and start setup again |
 
 Screens also move on by themselves: the weather picture stays for 8 seconds, everything else
-for about 4 seconds. The forecast refreshes every 30 minutes.
+for about 4 seconds. The forecast refreshes every 15 minutes in the background. If it can't be
+refreshed for 3 hours, the error screen replaces the old numbers instead of showing them as current.
 
 ## Settings ([src/config.h](src/config.h))
 
 - `LATITUDE` / `LONGITUDE`: leave at 0 to locate by IP address (city-level; a VPN or mobile
   hotspot can put it somewhere else).
-- `USE_FAHRENHEIT`, `REFRESH_MINUTES`.
+- `USE_FAHRENHEIT`, `REFRESH_MINUTES`, `STALE_HOURS`.
+- `PRECIP_SHOW_MIN`: the rain screen appears at this chance or higher (20%).
 - `BRIGHTNESS_LEVELS`: kept low because the panel runs on AA batteries.
 
 ## How it works
 
-- Forecast: [Open-Meteo](https://open-meteo.com/) daily forecast for today in the local timezone:
-  WMO weather code, max/min temperature and max precipitation probability. No API key is needed.
+- Forecast: [Open-Meteo](https://open-meteo.com/), in the local timezone, with no API key:
+  - current temperature, weather code and whether it's day or night;
+  - today's high and low;
+  - hourly precipitation probability, of which the highest over the next 12 hours is shown.
+- Moon phase is worked out on the toy from the date, as a mean lunar month from a known new moon.
+  That's accurate to within about a day. South of the equator the lit side is mirrored.
 - The HTTPS request doesn't check the server certificate, because the board has no certificate bundle.
   That's fine for public weather data, but don't reuse the pattern for anything private.
 - Icons, the raindrop and the 3×5 digits are text art in [src/art.h](src/art.h). Run
   `python3 tools/preview_art.py` to re-render the preview images in `docs/` after editing them; it needs `rsvg-convert`.
 
-| WMO code | Icon |
+| WMO code (current) | Icon |
 |---|---|
-| 0–1 | Sun (moon at night) |
-| 2 | Sun behind cloud (cloud at night) |
+| 0–1 | Sun; at night the moon in its phase |
+| 2 | Sun behind cloud; at night the moon behind cloud |
 | 3 | Cloud |
 | 45, 48 | Fog |
 | 51–57 | Drizzle |

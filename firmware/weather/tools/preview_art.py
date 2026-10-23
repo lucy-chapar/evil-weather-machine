@@ -6,6 +6,7 @@ docs/preview-shot.png (needs rsvg-convert).
 Mirrors the particle effects in main.cpp so animated icons can be checked
 without hardware.  Run from anywhere:  python3 tools/preview_art.py
 """
+import math
 import os
 import re
 import subprocess
@@ -79,7 +80,8 @@ def temp_color(c):
 
 
 def temp_screen(temp_f, high):
-    """Arrow on rows 0-1, number centred on rows 3-7, as drawTempScreen()."""
+    """As drawTempScreen(): 'high' True/False draws the arrow on rows 0-1 and the
+    number on rows 3-7; None is the current temperature, the number alone on rows 2-6."""
     glyphs = {m.group(1): re.findall(r'"([^"]*)"', m.group(2))
               for m in re.finditer(r"\{'(.)', \{(.*?)\}\}", SRC)}
     color = temp_color((temp_f - 32) * 5 / 9)
@@ -89,15 +91,45 @@ def temp_screen(temp_f, high):
         cols += [[g[y][x] == "X" for y in range(5)] for x in range(len(g[0]))] + [[False] * 5]
     cols = cols[:-1]
     grid = [[None] * 8 for _ in range(8)]
-    for y, row in enumerate(art("ARROW_UP" if high else "ARROW_DOWN")):
-        for x, c in enumerate(row):
-            if c == "X":
-                grid[y][x] = tuple(v // 2 for v in color)
+    if high is not None:
+        for y, row in enumerate(art("ARROW_UP" if high else "ARROW_DOWN")):
+            for x, c in enumerate(row):
+                if c == "X":
+                    grid[y][x] = tuple(v // 2 for v in color)
+    top = 2 if high is None else 3
     x0 = (8 - len(cols)) // 2
     for i, col in enumerate(cols):
         for y in range(5):
             if col[y]:
-                grid[3 + y][x0 + i] = color
+                grid[top + y][x0 + i] = color
+    return grid
+
+
+def moon_screen(phase, overlay=None, twinkle=0):
+    """As drawMoon() (northern hemisphere), with optional art drawn on top."""
+    def inside(x, y):
+        nx, ny = (x - 3.5) / 4, (y - 3.5) / 4
+        return nx * nx + ny * ny <= 1
+
+    grid = [[None] * 8 for _ in range(8)]
+    waxing = phase < 0.5
+    c = math.cos(2 * math.pi * phase)
+    lit, dim = PALETTE["M"], tuple(v // 3 for v in PALETTE["M"])
+    for y in range(8):
+        for x in range(8):
+            if not inside(x, y):
+                continue
+            nx, ny = (x - 3.5) / 4, (y - 3.5) / 4
+            t = c * math.sqrt(1 - ny * ny)
+            on = nx > t if waxing else nx < -t
+            edge = not all(inside(x + dx, y + dy) for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))
+            grid[y][x] = lit if on else (dim if edge else None)
+    star = PALETTE["S"] if twinkle == 0 else tuple(v // 3 for v in PALETTE["S"])
+    grid[0][0 if waxing else 7] = star
+    for y, row in enumerate(art(overlay) if overlay else []):
+        for x, ch in enumerate(row):
+            if ch != ".":
+                grid[y][x] = PALETTE[ch]
     return grid
 
 
@@ -173,12 +205,18 @@ def write_png(name, blocks):
 
 
 def main():
-    weather = []
+    weather = [("now (F)", [temp_screen(58, None), temp_screen(7, None)])]
     for name, rows, fx in icons():
+        if fx == "FX_MOON":
+            continue
         frames = 4 if fx != "FX_NONE" or len(rows) > 8 else 1
         weather.append((name.lower(), [frame(rows, fx, n) for n in range(frames)]))
     weather.append(("high / low (F)", [temp_screen(t, h) for t, h in ((64, True), (41, False), (88, True), (7, False))]))
-    weather.append(("rain 0/25/50/100%", [rain_screen(p) for p in (0, 25, 50, 100)]))
+    weather.append(("rain 25/50/75/100%", [rain_screen(p) for p in (25, 50, 75, 100)]))
+    phases = [i / 8 for i in range(8)]
+    weather.append(("moon: new to full", [moon_screen(p) for p in phases[:4]]))
+    weather.append(("moon: full to new", [moon_screen(p) for p in phases[4:]]))
+    weather.append(("night, partly cloudy", [moon_screen(0.375, "NIGHT_CLOUD"), moon_screen(0.75, "NIGHT_CLOUD")]))
     shot = [
         ("shot day, left", [shot_screen(3, 4, "L", ((0, 0), (7, 1))), shot_screen(3, 2, "L", ((3, 0), (7, 7)))]),
         ("shot day, right", [shot_screen(3, 4, "R", ((7, 0), (0, 1))), shot_screen(3, 2, "R", ((4, 7), (0, 5)))]),

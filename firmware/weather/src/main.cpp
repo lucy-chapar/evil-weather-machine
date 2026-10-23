@@ -1,15 +1,18 @@
 // Weather display for the Digital Sand toy.
 //
-// Flips through today's high and low temperature (arrow + number), an animated
-// weather icon and the chance of rain (a raindrop that fills up).  On shot days
-// it adds a beating trans-flag heart with a green dot in the bottom corner on
-// the side to use; the injection schedule comes from config.h.
+// Flips through the current temperature, an animated icon for the weather right
+// now (the moon in its current phase at night), today's high and low (arrow +
+// number) and, when rain is likely in the next 12 hours, the chance of it (a
+// raindrop that fills up).  On shot days it adds a beating trans-flag heart with
+// a green dot in the bottom corner on the side to use; the injection schedule
+// comes from config.h.
 // Forecasts come from Open-Meteo (no API key).  WiFi is set up from a phone
 // through the "DigitalSand-Weather" access point on first boot.
 //
 // Firmware updates over WiFi: pio run -e ota -t upload (see platformio.ini).
 //
-// Button (D4): short press = next screen, hold = next brightness step, hold while powering on = forget the WiFi network.
+// Button (D4): short press = next screen, hold = next brightness step,
+// hold while powering on = forget the WiFi network.
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -34,11 +37,13 @@ static uint8_t brightnessStep = DEFAULT_BRIGHTNESS_STEP;
 
 struct Forecast {
   bool valid = false;
-  int code = 0;          // WMO weather code
-  bool isDay = true;
-  float highC = 0;
-  float lowC = 0;
-  int precipPct = 0;
+  uint32_t fetchedMs = 0;  // millis() of the last successful fetch
+  float nowC = 0;          // current temperature
+  int code = 0;            // current WMO weather code
+  bool isDay = true;       // current
+  float highC = 0;         // today
+  float lowC = 0;          // today
+  int precipPct = 0;       // highest chance of precipitation over the next 12 hours
 };
 
 static Forecast forecast;
@@ -138,8 +143,50 @@ static void drawEffect(Effect fx, uint32_t frame) {
   }
 }
 
+static float demoPhase = -1;  // demo build: force the moon phase
+
+// Moon phase from 0 to 1: 0 new, 0.25 first quarter, 0.5 full, 0.75 last quarter.
+// Mean synodic month counted from the new moon of 2000-01-06 18:14 UTC; good to
+// within a day, which is finer than an 8x8 moon can show.
+static float moonPhase() {
+  if (demoPhase >= 0) return demoPhase;
+  time_t now = time(nullptr);
+  if (now < 1700000000) return 0.5f;  // clock not set yet: full disc
+  double p = fmod((now - 947182440) / 86400.0 / 29.530588853, 1.0);
+  return p < 0 ? p + 1 : p;
+}
+
+static bool inMoon(int x, int y) {
+  float nx = (x - 3.5f) / 4, ny = (y - 3.5f) / 4;
+  return nx * nx + ny * ny <= 1;
+}
+
+// The moon as an 8-pixel disc lit for its phase.  The unlit part shows only as
+// a dim outline, so a new moon reads as an empty circle.  A star twinkles in the
+// top corner on the dark side.  South of the equator the lit side is mirrored.
+static void drawMoon(uint32_t frame) {
+  float p = moonPhase();
+  bool waxing = p < 0.5f;
+  float c = cosf(2 * PI * p);
+  uint32_t lit = paletteColor('M'), dim = scale(lit, 1, 3);
+  for (int y = 0; y < 8; y++)
+    for (int x = 0; x < 8; x++) {
+      if (!inMoon(x, y)) continue;
+      float nx = (x - 3.5f) / 4, ny = (y - 3.5f) / 4;
+      if (latitude < 0) nx = -nx;
+      float t = c * sqrtf(1 - ny * ny);  // terminator position on this row
+      bool on = waxing ? nx > t : nx < -t;
+      bool edge = !inMoon(x - 1, y) || !inMoon(x + 1, y) || !inMoon(x, y - 1) || !inMoon(x, y + 1);
+      if (on) setPixel(x, y, lit);
+      else if (edge) setPixel(x, y, dim);
+    }
+  bool darkLeft = waxing != (latitude < 0);
+  setPixel(darkLeft ? 0 : 7, 0, frame % 3 ? scale(paletteColor('S'), 1, 3) : paletteColor('S'));
+}
+
 static void drawIcon(const Icon& icon, uint32_t frame) {
   strip.clear();
+  if (icon.effect == FX_MOON) drawMoon(frame);  // under the art (night clouds)
   drawRows(icon.rows + (frame % icon.frameCount) * 8, 8);
   drawEffect(icon.effect, frame);
   strip.show();
@@ -212,11 +259,12 @@ static bool drawText(int top, uint32_t step) {
 // Forecast
 // ---------------------------------------------------------------------------
 
+// Icon for the current WMO weather code: sun by day, the moon by night.
 static const Icon& iconFor(int code, bool day) {
   switch (code) {
     case 0:
-    case 1: return day ? ICON_SUN : ICON_MOON;
-    case 2: return day ? ICON_PARTLY : ICON_CLOUDY;
+    case 1: return day ? ICON_SUN : ICON_CLEAR_NIGHT;
+    case 2: return day ? ICON_PARTLY : ICON_NIGHT_PARTLY;
     case 3: return ICON_CLOUDY;
     case 45:
     case 48: return ICON_FOG;
@@ -283,26 +331,38 @@ static bool locate() {
 
 static bool fetchForecast() {
   if (WiFi.status() != WL_CONNECTED || !locate()) return false;
+  // Current conditions, today's high and low, and hourly rain chances for today
+  // and tomorrow (so the next 12 hours are covered late in the evening).
   String url = "https://api.open-meteo.com/v1/forecast?latitude=" + String(latitude, 3) +
                "&longitude=" + String(longitude, 3) +
-               "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-               "&current=is_day&timezone=auto&forecast_days=1";
+               "&current=temperature_2m,weather_code,is_day"
+               "&daily=temperature_2m_max,temperature_2m_min"
+               "&hourly=precipitation_probability&timezone=auto&forecast_days=2";
   String body;
   if (!httpGet(url, body)) return false;
   JsonDocument doc;
   if (deserializeJson(doc, body)) return false;
-  JsonObject daily = doc["daily"];
-  if (daily["weather_code"][0].isNull()) return false;
-  forecast.code = daily["weather_code"][0];
+  JsonObject current = doc["current"], daily = doc["daily"];
+  const char* nowTime = current["time"];  // local time, "YYYY-MM-DDTHH:MM"
+  if (!nowTime || strlen(nowTime) < 13 || current["temperature_2m"].isNull()) return false;
+  forecast.nowC = current["temperature_2m"];
+  forecast.code = current["weather_code"] | 0;
+  forecast.isDay = (current["is_day"] | 1) == 1;
   forecast.highC = daily["temperature_2m_max"][0];
   forecast.lowC = daily["temperature_2m_min"][0];
-  forecast.precipPct = daily["precipitation_probability_max"][0] | 0;
-  forecast.isDay = (doc["current"]["is_day"] | 1) == 1;
+  // Hourly values start at local midnight today, so this hour is index HH.
+  JsonArray rain = doc["hourly"]["precipitation_probability"];
+  int hour = atoi(nowTime + 11);
+  forecast.precipPct = 0;
+  for (int i = hour; i < hour + 12 && i < (int)rain.size(); i++)
+    forecast.precipPct = max(forecast.precipPct, rain[i] | 0);
   forecast.valid = true;
+  forecast.fetchedMs = millis();
   int32_t offset = doc["utc_offset_seconds"] | 0;
   if (offset != prefs.getInt("utcoff", INT32_MIN)) prefs.putInt("utcoff", offset);
-  Serial.printf("Today: code %d, high %.1fC, low %.1fC, rain %d%%, %s\n", forecast.code,
-                forecast.highC, forecast.lowC, forecast.precipPct, forecast.isDay ? "day" : "night");
+  Serial.printf("Now %.1fC code %d %s; today high %.1fC low %.1fC; rain next 12 h %d%%\n",
+                forecast.nowC, forecast.code, forecast.isDay ? "day" : "night", forecast.highC,
+                forecast.lowC, forecast.precipPct);
   return true;
 }
 
@@ -343,9 +403,9 @@ static int cycleDay() {
 
 static bool isShotDay() { return cycleDay() == 0; }
 
-// Side for the most recent scheduled shot (today's, on shot day).
 static char demoSide = 0;  // demo build: force the shot-day side
 
+// Side for the most recent scheduled shot (today's, on shot day).
 static char shotSide() {
   if (demoSide) return demoSide;
   int32_t today;
@@ -378,8 +438,8 @@ static void drawHeartScreen(uint32_t step) {
 // Screens and button
 // ---------------------------------------------------------------------------
 
-enum Screen { SCREEN_HIGH, SCREEN_LOW, SCREEN_ICON, SCREEN_RAIN, SCREEN_HEART };
-static Screen screen = SCREEN_HIGH;
+enum Screen { SCREEN_NOW, SCREEN_ICON, SCREEN_HIGH, SCREEN_LOW, SCREEN_RAIN, SCREEN_HEART };
+static Screen screen = SCREEN_NOW;
 static uint32_t screenStartMs = 0;
 static uint32_t lastStepMs = 0;
 static uint32_t step = 0;  // animation frame, scroll offset or fill level
@@ -390,25 +450,38 @@ static void showScreen(Screen s) {
   lastStepMs = 0;
   step = 0;
   textClear();
+  if (s == SCREEN_NOW) textAdd(displayTemp(forecast.nowC), tempColor(forecast.nowC));
   if (s == SCREEN_HIGH) textAdd(displayTemp(forecast.highC), tempColor(forecast.highC));
   if (s == SCREEN_LOW) textAdd(displayTemp(forecast.lowC), tempColor(forecast.lowC));
 }
 
-// High, low, icon, rain, then the heart on shot days.
-static void nextScreen() {
-  Screen s = screen == SCREEN_RAIN && !isShotDay() ? SCREEN_HEART : screen;
-  showScreen(s >= SCREEN_HEART ? SCREEN_HIGH : (Screen)(s + 1));
+static bool screenWanted(Screen s) {
+  if (s == SCREEN_RAIN) return forecast.precipPct >= PRECIP_SHOW_MIN;
+  if (s == SCREEN_HEART) return isShotDay();
+  return true;
 }
 
-// High or low temperature: arrow on rows 0-1, number on rows 3-7.
-static bool drawTempScreen(bool high, uint32_t step) {
-  float c = high ? forecast.highC : forecast.lowC;
+// Now, icon, high, low, then rain when it's likely and the heart on shot days.
+static void nextScreen() {
+  Screen s = screen;
+  do {
+    s = s >= SCREEN_HEART ? SCREEN_NOW : (Screen)(s + 1);
+  } while (!screenWanted(s));
+  showScreen(s);
+}
+
+// Temperatures.  Now: the number alone on rows 2-6.  High and low: an arrow on
+// rows 0-1 and the number on rows 3-7.
+static bool drawTempScreen(Screen s, uint32_t step) {
+  float c = s == SCREEN_NOW ? forecast.nowC : s == SCREEN_HIGH ? forecast.highC : forecast.lowC;
   strip.clear();
-  const char* const* arrow = high ? ART_ARROW_UP : ART_ARROW_DOWN;
-  for (int y = 0; y < 2; y++)
-    for (int x = 0; x < 8; x++)
-      if (arrow[y][x] == 'X') setPixel(x, y, scale(tempColor(c), 1, 2));
-  bool more = drawText(3, step);
+  if (s != SCREEN_NOW) {
+    const char* const* arrow = s == SCREEN_HIGH ? ART_ARROW_UP : ART_ARROW_DOWN;
+    for (int y = 0; y < 2; y++)
+      for (int x = 0; x < 8; x++)
+        if (arrow[y][x] == 'X') setPixel(x, y, scale(tempColor(c), 1, 2));
+  }
+  bool more = drawText(s == SCREEN_NOW ? 2 : 3, step);
   strip.show();
   return more;
 }
@@ -416,7 +489,7 @@ static bool drawTempScreen(bool high, uint32_t step) {
 static bool inDrop(int x, int y) { return x >= 0 && x < 8 && y >= 0 && y < 8 && ART_DROP[y][x] == 'B'; }
 
 // Rain chance: a drop that fills from the bottom, one row per 12.5%.  The empty
-// part shows only the drop's outline, so 0% reads as an empty drop.
+// part shows only the drop's outline.
 static void drawRainScreen(uint32_t step) {
   int target = (forecast.precipPct * 8 + 50) / 100;
   int level = min((int)step, target);
@@ -474,46 +547,80 @@ static void orientationTest() {
 
 #ifdef DEMO_MODE
 // Demo build (pio run -e demo): plays every screen back to back, no WiFi needed.
+enum DemoKind : uint8_t { D_ICON, D_TEMP, D_RAIN, D_SHOT, D_SPINNER };
+
 struct DemoItem {
   const char* name;
-  uint16_t ms;      // how long to show it
-  uint16_t frameMs; // time between animation frames
+  uint16_t ms;        // how long to show it
+  DemoKind kind;
+  const Icon* icon;   // D_ICON
+  float value;        // moon phase (night icons), temperature in C, rain %, or shot side
+  Screen screen;      // D_TEMP: which temperature screen
 };
 
-static const Icon* const DEMO_ICONS[] = {&ICON_SUN, &ICON_MOON, &ICON_PARTLY, &ICON_CLOUDY, &ICON_FOG,
-                                         &ICON_DRIZZLE, &ICON_RAIN, &ICON_SNOW, &ICON_STORM};
 static const DemoItem DEMO[] = {
-    {"sun", 4000, 0}, {"moon", 4000, 0}, {"partly cloudy", 4000, 0}, {"cloudy", 4000, 0},
-    {"fog", 4000, 0}, {"drizzle", 4000, 0}, {"rain", 4000, 0}, {"snow", 4000, 0},
-    {"thunderstorm", 5000, 0},
-    {"high 62F", 3000, 85}, {"low 45F", 3000, 85}, {"high 101F (scrolls)", 5500, 85},
-    {"low -12F (scrolls)", 5500, 85},
-    {"rain 0%", 2500, 120}, {"rain 25%", 2500, 120}, {"rain 50%", 2500, 120}, {"rain 100%", 3000, 120},
-    {"shot day, left", 5000, 150}, {"shot day, right", 5000, 150},
-    {"wifi setup", 2000, 1000}, {"loading", 2500, 80}, {"error", 2000, 1000},
+    {"sun", 4000, D_ICON, &ICON_SUN, -1, SCREEN_NOW},
+    {"partly cloudy", 4000, D_ICON, &ICON_PARTLY, -1, SCREEN_NOW},
+    {"cloudy", 4000, D_ICON, &ICON_CLOUDY, -1, SCREEN_NOW},
+    {"fog", 4000, D_ICON, &ICON_FOG, -1, SCREEN_NOW},
+    {"drizzle", 4000, D_ICON, &ICON_DRIZZLE, -1, SCREEN_NOW},
+    {"rain", 4000, D_ICON, &ICON_RAIN, -1, SCREEN_NOW},
+    {"snow", 4000, D_ICON, &ICON_SNOW, -1, SCREEN_NOW},
+    {"thunderstorm", 5000, D_ICON, &ICON_STORM, -1, SCREEN_NOW},
+    {"new moon", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.0, SCREEN_NOW},
+    {"waxing crescent", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.125, SCREEN_NOW},
+    {"first quarter", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.25, SCREEN_NOW},
+    {"waxing gibbous", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.375, SCREEN_NOW},
+    {"full moon", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.5, SCREEN_NOW},
+    {"waning gibbous", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.625, SCREEN_NOW},
+    {"last quarter", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.75, SCREEN_NOW},
+    {"waning crescent", 2000, D_ICON, &ICON_CLEAR_NIGHT, 0.875, SCREEN_NOW},
+    {"partly cloudy night", 4000, D_ICON, &ICON_NIGHT_PARTLY, 0.375, SCREEN_NOW},
+    {"now 58F", 3000, D_TEMP, nullptr, 14.4, SCREEN_NOW},
+    {"high 62F", 3000, D_TEMP, nullptr, 16.7, SCREEN_HIGH},
+    {"low 45F", 3000, D_TEMP, nullptr, 7.2, SCREEN_LOW},
+    {"high 101F (scrolls)", 5500, D_TEMP, nullptr, 38.3, SCREEN_HIGH},
+    {"low -12F (scrolls)", 5500, D_TEMP, nullptr, -24.4, SCREEN_LOW},
+    {"rain 25%", 2500, D_RAIN, nullptr, 25, SCREEN_NOW},
+    {"rain 50%", 2500, D_RAIN, nullptr, 50, SCREEN_NOW},
+    {"rain 100%", 3000, D_RAIN, nullptr, 100, SCREEN_NOW},
+    {"shot day, left", 5000, D_SHOT, nullptr, 'L', SCREEN_NOW},
+    {"shot day, right", 5000, D_SHOT, nullptr, 'R', SCREEN_NOW},
+    {"wifi setup", 2000, D_ICON, &ICON_WIFI_SETUP, -1, SCREEN_NOW},
+    {"loading", 2500, D_SPINNER, nullptr, 0, SCREEN_NOW},
+    {"error", 2000, D_ICON, &ICON_ERROR, -1, SCREEN_NOW},
 };
 static const int DEMO_COUNT = sizeof(DEMO) / sizeof(DEMO[0]);
 
-static void demoStart(int i) {
-  Serial.printf("demo: %s\n", DEMO[i].name);
-  static const float temps[] = {16.7, 7.2, 38.3, -24.4};  // 62, 45, 101, -12 F
-  demoSide = i == 18 ? 'R' : 'L';
-  if (i >= 9 && i <= 12) {
-    forecast.highC = forecast.lowC = temps[i - 9];
-    showScreen(i % 2 ? SCREEN_HIGH : SCREEN_LOW);
+static void demoStart(const DemoItem& d) {
+  Serial.printf("demo: %s\n", d.name);
+  demoPhase = d.kind == D_ICON ? d.value : -1;
+  if (d.kind == D_TEMP) {
+    forecast.nowC = forecast.highC = forecast.lowC = d.value;
+    showScreen(d.screen);
   }
-  static const int rain[] = {0, 25, 50, 100};
-  if (i >= 13 && i <= 16) forecast.precipPct = rain[i - 13];
+  if (d.kind == D_RAIN) forecast.precipPct = d.value;
+  if (d.kind == D_SHOT) demoSide = (char)d.value;
 }
 
-static void demoFrame(int i, uint32_t f) {
-  if (i < 9) drawIcon(*DEMO_ICONS[i], f);
-  else if (i <= 12) drawTempScreen(i % 2, f);
-  else if (i <= 16) drawRainScreen(f);
-  else if (i <= 18) drawHeartScreen(f);
-  else if (i == 19) drawIcon(ICON_WIFI_SETUP, 0);
-  else if (i == 20) drawSpinner(f);
-  else drawIcon(ICON_ERROR, 0);
+static uint16_t demoFrameMs(const DemoItem& d) {
+  switch (d.kind) {
+    case D_ICON: return d.icon->frameMs;
+    case D_TEMP: return 85;
+    case D_RAIN: return 120;
+    case D_SHOT: return 150;
+    default: return 80;
+  }
+}
+
+static void demoFrame(const DemoItem& d, uint32_t f) {
+  switch (d.kind) {
+    case D_ICON: drawIcon(*d.icon, f); break;
+    case D_TEMP: drawTempScreen(d.screen, f); break;
+    case D_RAIN: drawRainScreen(f); break;
+    case D_SHOT: drawHeartScreen(f); break;
+    case D_SPINNER: drawSpinner(f); break;
+  }
 }
 
 static void demoLoop() {
@@ -525,12 +632,11 @@ static void demoLoop() {
     startMs = now;
     lastMs = 0;
     frame = 0;
-    demoStart(i);
+    demoStart(DEMO[i]);
   }
-  uint16_t period = i < 9 ? DEMO_ICONS[i]->frameMs : DEMO[i].frameMs;
-  if (lastMs == 0 || now - lastMs >= period) {
+  if (lastMs == 0 || now - lastMs >= demoFrameMs(DEMO[i])) {
     lastMs = now;
-    demoFrame(i, frame++);
+    demoFrame(DEMO[i], frame++);
   }
 }
 #endif
@@ -582,7 +688,7 @@ void setup() {
   WiFi.setAutoReconnect(true);
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   setupOta();
-  showScreen(SCREEN_HIGH);
+  showScreen(SCREEN_NOW);
 }
 
 void loop() {
@@ -596,12 +702,15 @@ void loop() {
   handleButton();
 
   if ((int32_t)(now - nextFetchMs) >= 0) {
-    drawSpinner(now / 80);
+    if (!forecast.valid) drawSpinner(now / 80);  // background refreshes stay invisible
     bool ok = fetchForecast();
     fetchFailed = !ok;
     nextFetchMs = millis() + (ok ? REFRESH_MINUTES : RETRY_MINUTES) * 60000UL;
-    if (ok) showScreen(screen);  // redraw with the new numbers
+    if (ok && screenWanted(screen)) showScreen(screen);  // redraw with the new numbers
+    else if (ok) nextScreen();
   }
+  // Don't show old weather as if it were current.
+  if (forecast.valid && millis() - forecast.fetchedMs > STALE_HOURS * 3600000UL) forecast.valid = false;
 
   if (!forecast.valid) {
     // No forecast yet: still show the shot-day heart if the clock is known.
@@ -633,7 +742,7 @@ void loop() {
     if (now - screenStartMs > 4000) nextScreen();
   } else if (now - lastStepMs >= 85) {
     lastStepMs = now;
-    bool more = drawTempScreen(screen == SCREEN_HIGH, step++);
+    bool more = drawTempScreen(screen, step++);
     bool scrolls = textWidth - 1 > 8;
     if (!more || (!scrolls && now - screenStartMs > 3500)) nextScreen();
   }

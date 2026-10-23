@@ -20,7 +20,8 @@ The KiCad 7 carrier PCB is in `pcb/`; see `pcb/README.md`.
 
 ## Weather firmware
 
-`firmware/weather/` is a PlatformIO project (ESP32, Arduino) that shows today's Open-Meteo forecast on the 8x8 panel.
+`firmware/weather/` is a PlatformIO project (ESP32, Arduino) that shows Open-Meteo weather on the 8x8 panel:
+current temperature and conditions (moon phase at night), today's high/low, and the rain chance over the next 12 h.
 
 - Build: `cd firmware/weather && pio run` (add `-t upload` to flash). Platform is pinned to `espressif32@6.4.0`.
   `pio run -e demo -t upload` flashes a demo (`DEMO_MODE`) that loops every screen without WiFi.

@@ -6,9 +6,15 @@
 #define LONGITUDE 0.0
 #define USE_FAHRENHEIT true
 
-// How often to fetch the forecast, and how soon to retry after a failure.
-#define REFRESH_MINUTES 30
+// How often to fetch the forecast, how soon to retry after a failure, and how
+// old the last forecast may get before the error screen replaces it.
+#define REFRESH_MINUTES 15
 #define RETRY_MINUTES 2
+#define STALE_HOURS 3
+
+// Show the rain screen when the chance of precipitation in the next 12 hours is
+// at least this many percent.
+#define PRECIP_SHOW_MIN 20
 
 // ---- Over-the-air updates ----------------------------------------------------
 // The toy shows up on the network as OTA_HOSTNAME.local.  The password is set
