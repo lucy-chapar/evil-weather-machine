@@ -505,9 +505,35 @@ static void drawRainScreen(uint32_t step) {
   strip.show();
 }
 
+// Night hours (NIGHT_START_HOUR to NIGHT_END_HOUR, local time).  False while the
+// clock isn't set, so the toy starts at its normal brightness.
+static bool isNightHours() {
+  int32_t offset = prefs.getInt("utcoff", INT32_MIN);
+  time_t now = time(nullptr);
+  if (offset == INT32_MIN || now < 1700000000) return false;
+  int hour = ((now + offset) % 86400) / 3600;
+  if (NIGHT_START_HOUR <= NIGHT_END_HOUR) return hour >= NIGHT_START_HOUR && hour < NIGHT_END_HOUR;
+  return hour >= NIGHT_START_HOUR || hour < NIGHT_END_HOUR;  // window crosses midnight
+}
+
+// The chosen brightness step, capped at NIGHT_BRIGHTNESS during night hours.
+// Checked once a second; 'now' applies a changed step straight away.
+static void updateBrightness(bool now = false) {
+  static int current = -1;
+  static uint32_t checkedMs = 0;
+  if (!now && current >= 0 && millis() - checkedMs < 1000) return;
+  checkedMs = millis();
+  int level = BRIGHTNESS[brightnessStep];
+  if (isNightHours()) level = min(level, NIGHT_BRIGHTNESS);
+  if (level != current) {
+    current = level;
+    strip.setBrightness(level);
+  }
+}
+
 static void applyBrightness() {
-  strip.setBrightness(BRIGHTNESS[brightnessStep]);
   prefs.putUChar("bright", brightnessStep);
+  updateBrightness(true);
 }
 
 static void handleButton() {
@@ -700,6 +726,7 @@ void loop() {
   ArduinoOTA.handle();
   uint32_t now = millis();
   handleButton();
+  updateBrightness();
 
   if ((int32_t)(now - nextFetchMs) >= 0) {
     if (!forecast.valid) drawSpinner(now / 80);  // background refreshes stay invisible

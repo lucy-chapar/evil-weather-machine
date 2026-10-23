@@ -83,7 +83,7 @@ ESPHome web installer, as in the kit instructions.
 | Button | Action |
 |---|---|
 | Short press | Next screen |
-| Hold ~1 s | Next brightness step (remembered) |
+| Hold ~1 s | Next brightness step (remembered; dimmed automatically 00:00-07:00) |
 | Hold while switching on | Forget the WiFi network and start setup again |
 
 Screens also move on by themselves: the weather picture stays for 8 seconds, everything else
@@ -97,6 +97,9 @@ refreshed for 3 hours, the error screen replaces the old numbers instead of show
 - `USE_FAHRENHEIT`, `REFRESH_MINUTES`, `STALE_HOURS`.
 - `PRECIP_SHOW_MIN`: the rain screen appears at this chance or higher (20%).
 - `BRIGHTNESS_LEVELS`: kept low because the panel runs on AA batteries.
+- Night dimming: from `NIGHT_START_HOUR` (00:00) to `NIGHT_END_HOUR` (07:00) local time, brightness is
+  capped at `NIGHT_BRIGHTNESS` (6, the lowest step). Holding the button at night still changes the
+  daytime brightness, which applies from 07:00.
 
 ## How it works
 

@@ -42,6 +42,12 @@
 #define BRIGHTNESS_LEVELS {6, 16, 40, 90}
 #define DEFAULT_BRIGHTNESS_STEP 1
 
+// Night dimming, by local time: from NIGHT_START_HOUR until NIGHT_END_HOUR the
+// brightness is capped at NIGHT_BRIGHTNESS.
+#define NIGHT_START_HOUR 0
+#define NIGHT_END_HOUR 7
+#define NIGHT_BRIGHTNESS 6
+
 // ---- Shot tracker -------------------------------------------------------------
 // On shot days a beating heart joins the rotation, with a green dot in the bottom
 // corner on the side to use.  The schedule is pure calendar: a shot every SHOT_EVERY_DAYS days from the shot below,
