@@ -28,6 +28,8 @@
 // ---- Hardware (matches the kit wiring and the carrier PCB) ------------------
 #define LED_PIN 5      // D5 -> LED panel DIN
 #define BUTTON_PIN 4   // D4 -> button to GND
+#define SDA_PIN 21     // D21 -> GY-521 SDA
+#define SCL_PIN 22     // D22 -> GY-521 SCL
 
 // ---- LED matrix layout --------------------------------------------------------
 // At boot the panel shows an orientation test: the top-left pixel is red, the
@@ -49,11 +51,21 @@
 #define NIGHT_BRIGHTNESS 6
 
 // ---- Shot tracker -------------------------------------------------------------
-// On shot days a beating heart joins the rotation, with a green dot in the bottom
-// corner on the side to use.  The schedule is pure calendar: a shot every SHOT_EVERY_DAYS days from the shot below,
-// alternating sides.  If the schedule shifts, set this to your latest shot.
+// A shot is due SHOT_EVERY_DAYS days after the last one, on the other side.  On
+// the due day a beating heart joins the rotation, with a green dot in the bottom
+// corner on the side to use.  Shake the toy to record the shot as taken.  If the
+// due day passes without that, the heart is the only screen and the dot turns
+// red until the toy is shaken; the next shot is then counted from that day.
+// LAST_SHOT_* is the last shot taken, used until the first shake (and again
+// whenever these values change).
 #define SHOT_EVERY_DAYS 3
 #define LAST_SHOT_YEAR 2026
 #define LAST_SHOT_MONTH 10
-#define LAST_SHOT_DAY 16      // Friday
+#define LAST_SHOT_DAY 22      // Thursday
 #define LAST_SHOT_SIDE 'R'    // side of that shot, 'L' or 'R'
+
+// A shake is SHAKE_JOLTS jolts above SHAKE_G (in g; 1 g is resting) within
+// SHAKE_WINDOW_MS.
+#define SHAKE_G 2.0
+#define SHAKE_JOLTS 4
+#define SHAKE_WINDOW_MS 1500

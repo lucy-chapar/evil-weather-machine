@@ -23,6 +23,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
+#include <Wire.h>
 #include <time.h>
 
 #include "art.h"
@@ -390,37 +391,77 @@ static bool localDay(int32_t& day) {
   return true;
 }
 
-// The schedule is pure calendar: a shot every SHOT_EVERY_DAYS days from the
-// LAST_SHOT_* date, alternating sides.  Nothing is logged on the device.
-static const int32_t FIRST_SHOT_DAY = daysFromCivil(LAST_SHOT_YEAR, LAST_SHOT_MONTH, LAST_SHOT_DAY);
+// A shot is due SHOT_EVERY_DAYS days after the last shot taken, on the other
+// side.  The last shot starts as the LAST_SHOT_* date in config.h.  Shaking the
+// toy on or after the due day records today as the day it was taken, so a late
+// shot moves the schedule with it.  The last shot is saved, so it survives
+// restarts and firmware updates.
+static const int32_t CONFIG_SHOT_DAY = daysFromCivil(LAST_SHOT_YEAR, LAST_SHOT_MONTH, LAST_SHOT_DAY);
+static int32_t lastShotDay = CONFIG_SHOT_DAY;
+static char lastShotSide = LAST_SHOT_SIDE;
 
-// Days into the current cycle (0 = shot day), or -1 while the date is unknown.
-static int cycleDay() {
-  int32_t today;
-  if (!localDay(today) || today < FIRST_SHOT_DAY) return -1;
-  return (today - FIRST_SHOT_DAY) % SHOT_EVERY_DAYS;
+// Saved shots count only while config.h names the same starting shot, so
+// changing LAST_SHOT_* restarts the schedule from the new date.
+static void loadShots() {
+  int32_t cfg = CONFIG_SHOT_DAY * 2 + (LAST_SHOT_SIDE == 'R');
+  if (prefs.getInt("shotcfg", INT32_MIN) != cfg) {
+    prefs.putInt("shotcfg", cfg);
+    prefs.putInt("shotday", CONFIG_SHOT_DAY);
+    prefs.putUChar("shotside", LAST_SHOT_SIDE);
+  }
+  lastShotDay = prefs.getInt("shotday", CONFIG_SHOT_DAY);
+  lastShotSide = prefs.getUChar("shotside", LAST_SHOT_SIDE);
+  Serial.printf("Last shot: day %ld, side %c\n", (long)lastShotDay, lastShotSide);
 }
 
-static bool isShotDay() { return cycleDay() == 0; }
+// SHOT_DUE on the due day.  SHOT_MISSED from the day after until the toy is
+// shaken.  SHOT_NONE otherwise, and while the date is unknown.
+enum ShotState { SHOT_NONE, SHOT_DUE, SHOT_MISSED };
 
-static char demoSide = 0;  // demo build: force the shot-day side
+static char demoSide = 0;               // demo build: force the side
+static ShotState demoShot = SHOT_NONE;  // demo build: force the state
 
-// Side for the most recent scheduled shot (today's, on shot day).
+static ShotState shotState() {
+  if (demoSide) return demoShot;
+  int32_t today;
+  if (!localDay(today)) return SHOT_NONE;
+  int32_t due = lastShotDay + SHOT_EVERY_DAYS;
+  if (today < due) return SHOT_NONE;
+  return today == due ? SHOT_DUE : SHOT_MISSED;
+}
+
+// Side for the next shot.
 static char shotSide() {
   if (demoSide) return demoSide;
+  return lastShotSide == 'R' ? 'L' : 'R';
+}
+
+// Records today's shot when one is due or missed.  False if none is.
+static bool recordShot() {
   int32_t today;
-  if (!localDay(today)) return LAST_SHOT_SIDE;
-  bool flipped = ((today - FIRST_SHOT_DAY) / SHOT_EVERY_DAYS) & 1;
-  return flipped == (LAST_SHOT_SIDE == 'R') ? 'L' : 'R';
+  if (shotState() == SHOT_NONE || !localDay(today)) return false;
+  lastShotSide = shotSide();
+  lastShotDay = today;
+  prefs.putInt("shotday", lastShotDay);
+  prefs.putUChar("shotside", lastShotSide);
+  Serial.printf("Shot recorded: day %ld, side %c\n", (long)lastShotDay, lastShotSide);
+  return true;
 }
 
 static const uint8_t BEAT[] = {4, 2, 4, 2, 2, 2, 2, 2};  // lub-dub, pause (quarters)
 
 static void sparkle(int x, int y) { setPixel(x, y, rgb(255, 255, 255)); }
 
-// Shot day: the trans-flag heart (rows 1-6) beats and sparkles, with a green
-// dot in the bottom corner on the side to use (rows 6-7, columns 0-1 or 6-7,
-// which the heart leaves empty).
+static void drawSideDot(char side, uint32_t color) {
+  int x0 = side == 'L' ? 0 : 6;
+  for (int y = 6; y < 8; y++)
+    for (int x = x0; x < x0 + 2; x++) setPixel(x, y, color);
+}
+
+// Shot day: the trans-flag heart (rows 1-6) beats and sparkles, with a dot in
+// the bottom corner on the side to use (rows 6-7, columns 0-1 or 6-7, which the
+// heart leaves empty).  The dot is green when the shot is due and red once it
+// has been missed.
 static void drawHeartScreen(uint32_t step) {
   strip.clear();
   drawRows(ART_HEART, 6, 1, BEAT[step % 8], 4);
@@ -428,10 +469,74 @@ static void drawHeartScreen(uint32_t step) {
     int x = esp_random() % 8, y = esp_random() % 8;
     if (y == 0 || y == 7 || ART_HEART[y - 1][x] == '.') sparkle(x, y);
   }
-  int x0 = shotSide() == 'L' ? 0 : 6;
-  for (int y = 6; y < 8; y++)
-    for (int x = x0; x < x0 + 2; x++) setPixel(x, y, paletteColor('Z'));
+  drawSideDot(shotSide(), paletteColor(shotState() == SHOT_MISSED ? 'R' : 'Z'));
   strip.show();
+}
+
+// After a shake records the shot: the heart fades out over 'step' 0-8 while the
+// dot stays green on the side just used.
+static void drawShotTaken(uint32_t step) {
+  strip.clear();
+  if (step < 8) drawRows(ART_HEART, 6, 1, 8 - step, 8);
+  drawSideDot(lastShotSide, paletteColor('Z'));
+  strip.show();
+}
+
+// ---------------------------------------------------------------------------
+// Shake (MPU-6050 on the GY-521)
+// ---------------------------------------------------------------------------
+
+static const uint8_t MPU_ADDR = 0x68;
+static bool mpuReady = false;
+
+static bool mpuWrite(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+static void setupShake() {
+  Wire.begin(SDA_PIN, SCL_PIN);
+  // Wake it from sleep and set the accelerometer range to +-8 g (4096 per g).
+  mpuReady = mpuWrite(0x6B, 0) && mpuWrite(0x1C, 0x10);
+  Serial.println(mpuReady ? "Accelerometer ready" : "No accelerometer found: shaking does nothing");
+}
+
+// True once the toy has been shaken: SHAKE_JOLTS jolts above SHAKE_G within
+// SHAKE_WINDOW_MS.  Tilting or setting it down stays well under that.  Reads
+// the accelerometer every 20 ms.
+static bool shaken() {
+  static uint32_t lastMs = 0, firstJoltMs = 0;
+  static uint8_t jolts = 0;
+  static bool high = false;
+  uint32_t now = millis();
+  if (!mpuReady || now - lastMs < 20) return false;
+  lastMs = now;
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);  // ACCEL_XOUT_H, then Y and Z
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(MPU_ADDR, (uint8_t)6) != 6) return false;
+  float g2 = 0;
+  for (int i = 0; i < 3; i++) {
+    uint8_t hi = Wire.read(), lo = Wire.read();
+    float g = (int16_t)(hi << 8 | lo) / 4096.0f;
+    g2 += g * g;
+  }
+  // Counted on the way up; must drop back under SHAKE_G - 0.5 before the next.
+  if (!high && g2 > SHAKE_G * SHAKE_G) {
+    high = true;
+    if (jolts == 0 || now - firstJoltMs > SHAKE_WINDOW_MS) {
+      jolts = 0;
+      firstJoltMs = now;
+    }
+    if (++jolts >= SHAKE_JOLTS) {
+      jolts = 0;
+      return true;
+    }
+  } else if (high && g2 < (SHAKE_G - 0.5f) * (SHAKE_G - 0.5f)) {
+    high = false;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,12 +561,15 @@ static void showScreen(Screen s) {
 }
 
 static bool screenWanted(Screen s) {
+  ShotState shot = shotState();
+  if (shot == SHOT_MISSED) return s == SCREEN_HEART;  // a missed shot is all the toy shows
   if (s == SCREEN_RAIN) return forecast.precipPct >= PRECIP_SHOW_MIN;
-  if (s == SCREEN_HEART) return isShotDay();
+  if (s == SCREEN_HEART) return shot == SHOT_DUE;
   return true;
 }
 
 // Now, icon, high, low, then rain when it's likely and the heart on shot days.
+// After a missed shot, only the heart.
 static void nextScreen() {
   Screen s = screen;
   do {
@@ -573,7 +681,7 @@ static void orientationTest() {
 
 #ifdef DEMO_MODE
 // Demo build (pio run -e demo): plays every screen back to back, no WiFi needed.
-enum DemoKind : uint8_t { D_ICON, D_TEMP, D_RAIN, D_SHOT, D_SPINNER };
+enum DemoKind : uint8_t { D_ICON, D_TEMP, D_RAIN, D_SHOT, D_MISSED, D_TAKEN, D_SPINNER };
 
 struct DemoItem {
   const char* name;
@@ -612,6 +720,8 @@ static const DemoItem DEMO[] = {
     {"rain 100%", 3000, D_RAIN, nullptr, 100, SCREEN_NOW},
     {"shot day, left", 5000, D_SHOT, nullptr, 'L', SCREEN_NOW},
     {"shot day, right", 5000, D_SHOT, nullptr, 'R', SCREEN_NOW},
+    {"missed shot, left", 5000, D_MISSED, nullptr, 'L', SCREEN_NOW},
+    {"shot taken (shaken), left", 1500, D_TAKEN, nullptr, 'L', SCREEN_NOW},
     {"wifi setup", 2000, D_ICON, &ICON_WIFI_SETUP, -1, SCREEN_NOW},
     {"loading", 2500, D_SPINNER, nullptr, 0, SCREEN_NOW},
     {"error", 2000, D_ICON, &ICON_ERROR, -1, SCREEN_NOW},
@@ -626,7 +736,10 @@ static void demoStart(const DemoItem& d) {
     showScreen(d.screen);
   }
   if (d.kind == D_RAIN) forecast.precipPct = d.value;
-  if (d.kind == D_SHOT) demoSide = (char)d.value;
+  if (d.kind == D_SHOT || d.kind == D_MISSED) demoSide = (char)d.value;
+  if (d.kind == D_SHOT) demoShot = SHOT_DUE;
+  if (d.kind == D_MISSED) demoShot = SHOT_MISSED;
+  if (d.kind == D_TAKEN) lastShotSide = (char)d.value;
 }
 
 static uint16_t demoFrameMs(const DemoItem& d) {
@@ -634,7 +747,9 @@ static uint16_t demoFrameMs(const DemoItem& d) {
     case D_ICON: return d.icon->frameMs;
     case D_TEMP: return 85;
     case D_RAIN: return 120;
-    case D_SHOT: return 150;
+    case D_SHOT:
+    case D_MISSED: return 150;
+    case D_TAKEN: return 90;
     default: return 80;
   }
 }
@@ -644,7 +759,9 @@ static void demoFrame(const DemoItem& d, uint32_t f) {
     case D_ICON: drawIcon(*d.icon, f); break;
     case D_TEMP: drawTempScreen(d.screen, f); break;
     case D_RAIN: drawRainScreen(f); break;
-    case D_SHOT: drawHeartScreen(f); break;
+    case D_SHOT:
+    case D_MISSED: drawHeartScreen(f); break;
+    case D_TAKEN: drawShotTaken(f); break;
     case D_SPINNER: drawSpinner(f); break;
   }
 }
@@ -693,6 +810,8 @@ void setup() {
   brightnessStep = prefs.getUChar("bright", DEFAULT_BRIGHTNESS_STEP) % BRIGHTNESS_COUNT;
   strip.begin();
   strip.setBrightness(BRIGHTNESS[brightnessStep]);
+  loadShots();
+  setupShake();
 
 #ifdef DEMO_MODE
   orientationTest();
@@ -739,10 +858,32 @@ void loop() {
   // Don't show old weather as if it were current.
   if (forecast.valid && millis() - forecast.fetchedMs > STALE_HOURS * 3600000UL) forecast.valid = false;
 
+  // Shaking the toy when a shot is due or missed records it as taken today.
+  ShotState shot = shotState();
+  if (shot != SHOT_NONE && shaken() && recordShot()) {
+    for (uint32_t i = 0; i <= 8; i++) {
+      drawShotTaken(i);
+      delay(90);
+    }
+    delay(600);
+    showScreen(SCREEN_NOW);
+    return;
+  }
+
+  // A missed shot replaces every other screen.  With no forecast, the heart
+  // still shows on the due day if the clock is known.
+  if (shot == SHOT_MISSED || (shot == SHOT_DUE && !forecast.valid)) {
+    if (screen != SCREEN_HEART) showScreen(SCREEN_HEART);
+    if (lastStepMs == 0 || now - lastStepMs >= 150) {
+      lastStepMs = now;
+      drawHeartScreen(step++);
+    }
+    delay(5);
+    return;
+  }
+
   if (!forecast.valid) {
-    // No forecast yet: still show the shot-day heart if the clock is known.
-    if (isShotDay()) drawHeartScreen(now / 150);
-    else if (fetchFailed) drawIcon(ICON_ERROR, 0);
+    if (fetchFailed) drawIcon(ICON_ERROR, 0);
     else drawSpinner(now / 80);
     delay(20);
     return;

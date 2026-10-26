@@ -15,7 +15,8 @@ an ESP32 DevKit, a GY-521 accelerometer, an 8x8 WS2812B panel and a 4xAA box in 
 The panel flips through the current temperature, an animated icon for the weather right now (the moon in
 its current phase at night), today's high and low, and the chance of rain when rain is likely in the next
 12 hours. On injection days it adds a beating trans-flag heart, with a green dot in the corner for the
-side to use.
+side to use. Shaking the toy records the injection; a missed one turns the dot red and takes over the
+display.
 
 ![Weather screens](firmware/weather/docs/preview-weather.png)
 
@@ -26,22 +27,28 @@ A reminder for injectable estradiol (HRT).
 **Schedule**
 - One injection every 3 days: 10 injections in any 30-day window.
 - The site alternates between the left and right side of the abdomen.
-- Shot days are calculated from the calendar. Nothing is logged on the device.
+- The next injection is due 3 days after the last recorded one.
+- The device stores one record: the date and side of the last injection.
 
 **Display**
 - On a shot day, one extra screen is added to the rotation, after the rain chance.
 - It shows a heart in trans flag colours (blue, pink, white), beating, with white sparkle pixels around it.
 - A green 2×2 dot in the bottom-left or bottom-right corner marks the injection side: left or right.
+- Shaking the toy records the injection as taken that day. The heart fades out and the screen is
+  removed from the rotation.
+- If the shot day ends without a shake, the injection is marked missed. The heart becomes the only
+  screen and the dot turns red. A shake records the injection as taken that day, and the next one is
+  due 3 days later.
 - On other days the screen is not shown.
 
 ![Shot-day screens](firmware/weather/docs/preview-shot.png)
 
 **Configuration** ([`config.h`](firmware/weather/src/config.h))
-- `LAST_SHOT_YEAR`, `LAST_SHOT_MONTH`, `LAST_SHOT_DAY`: the date of one injection to count from.
+- `LAST_SHOT_YEAR`, `LAST_SHOT_MONTH`, `LAST_SHOT_DAY`: the date of the last injection taken. Used
+  until the first shake, and again whenever these values change.
 - `LAST_SHOT_SIDE`: the side of that injection, `'L'` or `'R'`.
 - `SHOT_EVERY_DAYS`: the interval, 3 by default.
-- If an injection is taken on a different day, the schedule does not adjust by itself. Set the values
-  above to the most recent injection and update the firmware.
+- `SHAKE_G`, `SHAKE_JOLTS`, `SHAKE_WINDOW_MS`: what counts as a shake (4 jolts above 2 g within 1.5 s).
 
 **Timekeeping**
 - The date comes from internet time (NTP), in the local timezone reported by the weather service.

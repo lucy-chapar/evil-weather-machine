@@ -152,9 +152,10 @@ def rain_screen(pct):
     return grid
 
 
-def shot_screen(day, level=4, side=None, sparkles=()):
+def shot_screen(day, level=4, side=None, sparkles=(), dot="Z"):
     """Heart screen as drawHeartScreen(): the flag heart filled 'day' thirds, or on
-    shot day ('side' set) full and beating with the green corner dot."""
+    shot day ('side' set) full and beating with the corner dot ('dot': Z green when
+    due, R red when missed)."""
     filled = 6 if side else day * 2
     grid = [[None] * 8 for _ in range(8)]
     for y, row in enumerate(art("HEART")):
@@ -169,7 +170,22 @@ def shot_screen(day, level=4, side=None, sparkles=()):
         x0 = 0 if side == "L" else 6
         for y in (6, 7):
             for x in (x0, x0 + 1):
-                grid[y][x] = PALETTE["Z"]
+                grid[y][x] = PALETTE[dot]
+    return grid
+
+
+def taken_screen(step, side):
+    """drawShotTaken(): after a shake, the heart fades out over steps 0-8 and the
+    green dot stays on the side just used."""
+    grid = [[None] * 8 for _ in range(8)]
+    for y, row in enumerate(art("HEART")):
+        for x, c in enumerate(row):
+            if c != "." and step < 8:
+                grid[y + 1][x] = tuple(v * (8 - step) // 8 for v in PALETTE[c])
+    x0 = 0 if side == "L" else 6
+    for y in (6, 7):
+        for x in (x0, x0 + 1):
+            grid[y][x] = PALETTE["Z"]
     return grid
 
 
@@ -220,6 +236,8 @@ def main():
     shot = [
         ("shot day, left", [shot_screen(3, 4, "L", ((0, 0), (7, 1))), shot_screen(3, 2, "L", ((3, 0), (7, 7)))]),
         ("shot day, right", [shot_screen(3, 4, "R", ((7, 0), (0, 1))), shot_screen(3, 2, "R", ((4, 7), (0, 5)))]),
+        ("missed, left", [shot_screen(3, 4, "L", ((0, 0), (7, 1)), "R"), shot_screen(3, 2, "L", ((3, 0), (7, 7)), "R")]),
+        ("shaken, left", [taken_screen(n, "L") for n in (0, 3, 6, 8)]),
     ]
     os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
     old = os.path.join(ROOT, "docs", "preview.png")
