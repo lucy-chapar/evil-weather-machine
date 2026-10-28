@@ -27,8 +27,8 @@ A reminder for injectable estradiol (HRT).
 **Schedule**
 - One injection every 3 days: 10 injections in any 30-day window.
 - The site alternates between the left and right side of the abdomen.
-- The next injection is due 3 days after the last recorded one.
-- The device stores one record: the date and side of the last injection.
+- Shot days are calculated from the calendar. A late injection does not move the next one.
+- The device stores one record: the date of the last scheduled injection recorded as taken.
 
 **Display**
 - On a shot day, one extra screen is added to the rotation, after the rain chance.
@@ -37,15 +37,14 @@ A reminder for injectable estradiol (HRT).
 - Shaking the toy records the injection as taken that day. The heart fades out and the screen is
   removed from the rotation.
 - If the shot day ends without a shake, the injection is marked missed. The heart becomes the only
-  screen and the dot turns red. A shake records the injection as taken that day, and the next one is
-  due 3 days later.
+  screen and the dot turns red, until a shake records the injection or the next shot day starts.
 - On other days the screen is not shown.
 
 ![Shot-day screens](firmware/weather/docs/preview-shot.png)
 
 **Configuration** ([`config.h`](firmware/weather/src/config.h))
-- `LAST_SHOT_YEAR`, `LAST_SHOT_MONTH`, `LAST_SHOT_DAY`: the date of the last injection taken. Used
-  until the first shake, and again whenever these values change.
+- `LAST_SHOT_YEAR`, `LAST_SHOT_MONTH`, `LAST_SHOT_DAY`: the date of one injection to count from.
+  Changing these values clears the stored record.
 - `LAST_SHOT_SIDE`: the side of that injection, `'L'` or `'R'`.
 - `SHOT_EVERY_DAYS`: the interval, 3 by default.
 - `SHAKE_G`, `SHAKE_JOLTS`, `SHAKE_WINDOW_MS`: what counts as a shake (4 jolts above 2 g within 1.5 s).

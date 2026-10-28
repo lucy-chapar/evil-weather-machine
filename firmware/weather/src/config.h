@@ -51,13 +51,12 @@
 #define NIGHT_BRIGHTNESS 6
 
 // ---- Shot tracker -------------------------------------------------------------
-// A shot is due SHOT_EVERY_DAYS days after the last one, on the other side.  On
-// the due day a beating heart joins the rotation, with a green dot in the bottom
-// corner on the side to use.  Shake the toy to record the shot as taken.  If the
-// due day passes without that, the heart is the only screen and the dot turns
-// red until the toy is shaken; the next shot is then counted from that day.
-// LAST_SHOT_* is the last shot taken, used until the first shake (and again
-// whenever these values change).
+// A shot every SHOT_EVERY_DAYS days from the shot below, alternating sides; the
+// calendar is fixed and a late shot doesn't move it.  On a shot day a beating
+// heart joins the rotation, with a green dot in the bottom corner on the side to
+// use.  Shake the toy to record the shot as taken.  If the day passes without
+// that, the heart is the only screen and the dot turns red, until the toy is
+// shaken or the next shot day comes.  Changing these values clears the record.
 #define SHOT_EVERY_DAYS 3
 #define LAST_SHOT_YEAR 2026
 #define LAST_SHOT_MONTH 10

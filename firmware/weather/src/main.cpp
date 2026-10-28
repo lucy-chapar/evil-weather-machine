@@ -391,31 +391,49 @@ static bool localDay(int32_t& day) {
   return true;
 }
 
-// A shot is due SHOT_EVERY_DAYS days after the last shot taken, on the other
-// side.  The last shot starts as the LAST_SHOT_* date in config.h.  Shaking the
-// toy on or after the due day records today as the day it was taken, so a late
-// shot moves the schedule with it.  The last shot is saved, so it survives
-// restarts and firmware updates.
-static const int32_t CONFIG_SHOT_DAY = daysFromCivil(LAST_SHOT_YEAR, LAST_SHOT_MONTH, LAST_SHOT_DAY);
-static int32_t lastShotDay = CONFIG_SHOT_DAY;
-static char lastShotSide = LAST_SHOT_SIDE;
+// The schedule is a fixed calendar: a shot every SHOT_EVERY_DAYS days from the
+// LAST_SHOT_* date, alternating sides.  A late shot doesn't move it.  Shaking
+// the toy records the latest scheduled shot as taken; that one day is saved, so
+// it survives restarts and firmware updates.
+static const int32_t FIRST_SHOT_DAY = daysFromCivil(LAST_SHOT_YEAR, LAST_SHOT_MONTH, LAST_SHOT_DAY);
+static int32_t doneShotDay = FIRST_SHOT_DAY;  // latest scheduled shot recorded as taken
+static char lastShotSide = LAST_SHOT_SIDE;    // its side, for the fade after a shake
 
-// Saved shots count only while config.h names the same starting shot, so
-// changing LAST_SHOT_* restarts the schedule from the new date.
-static void loadShots() {
-  int32_t cfg = CONFIG_SHOT_DAY * 2 + (LAST_SHOT_SIDE == 'R');
-  if (prefs.getInt("shotcfg", INT32_MIN) != cfg) {
-    prefs.putInt("shotcfg", cfg);
-    prefs.putInt("shotday", CONFIG_SHOT_DAY);
-    prefs.putUChar("shotside", LAST_SHOT_SIDE);
-  }
-  lastShotDay = prefs.getInt("shotday", CONFIG_SHOT_DAY);
-  lastShotSide = prefs.getUChar("shotside", LAST_SHOT_SIDE);
-  Serial.printf("Last shot: day %ld, side %c\n", (long)lastShotDay, lastShotSide);
+// The scheduled shot day on or before 'day'.
+static int32_t scheduledShot(int32_t day) {
+  if (day < FIRST_SHOT_DAY) return FIRST_SHOT_DAY;
+  return day - (day - FIRST_SHOT_DAY) % SHOT_EVERY_DAYS;
 }
 
-// SHOT_DUE on the due day.  SHOT_MISSED from the day after until the toy is
-// shaken.  SHOT_NONE otherwise, and while the date is unknown.
+// Side for a scheduled shot day.
+static char sideOf(int32_t shotDay) {
+  bool flipped = ((shotDay - FIRST_SHOT_DAY) / SHOT_EVERY_DAYS) & 1;
+  return flipped == (LAST_SHOT_SIDE == 'R') ? 'L' : 'R';
+}
+
+// Saved shots count only while config.h names the same first shot, so changing
+// LAST_SHOT_* restarts the record from the new date.
+static void loadShots() {
+  int32_t cfg = FIRST_SHOT_DAY * 2 + (LAST_SHOT_SIDE == 'R');
+  if (prefs.getInt("shotcfg", INT32_MIN) != cfg) {
+    prefs.putInt("shotcfg", cfg);
+    prefs.putInt("shotdone", FIRST_SHOT_DAY);
+    prefs.remove("shotday");
+  }
+  // The previous firmware saved the day a shot was taken; it counts for the
+  // scheduled shot on or before that day.
+  if (prefs.isKey("shotday")) {
+    prefs.putInt("shotdone", scheduledShot(prefs.getInt("shotday", FIRST_SHOT_DAY)));
+    prefs.remove("shotday");
+    prefs.remove("shotside");
+  }
+  doneShotDay = prefs.getInt("shotdone", FIRST_SHOT_DAY);
+  lastShotSide = sideOf(doneShotDay);
+  Serial.printf("Last shot recorded: day %ld, side %c\n", (long)doneShotDay, lastShotSide);
+}
+
+// SHOT_DUE on a shot day.  SHOT_MISSED after it, until the toy is shaken or the
+// next shot day comes.  SHOT_NONE otherwise, and while the date is unknown.
 enum ShotState { SHOT_NONE, SHOT_DUE, SHOT_MISSED };
 
 static char demoSide = 0;               // demo build: force the side
@@ -424,27 +442,29 @@ static ShotState demoShot = SHOT_NONE;  // demo build: force the state
 static ShotState shotState() {
   if (demoSide) return demoShot;
   int32_t today;
-  if (!localDay(today)) return SHOT_NONE;
-  int32_t due = lastShotDay + SHOT_EVERY_DAYS;
-  if (today < due) return SHOT_NONE;
-  return today == due ? SHOT_DUE : SHOT_MISSED;
+  if (!localDay(today) || today < FIRST_SHOT_DAY) return SHOT_NONE;
+  int32_t shot = scheduledShot(today);
+  if (doneShotDay >= shot) return SHOT_NONE;
+  return today == shot ? SHOT_DUE : SHOT_MISSED;
 }
 
-// Side for the next shot.
+// Side for the latest scheduled shot (today's, on a shot day).
 static char shotSide() {
   if (demoSide) return demoSide;
-  return lastShotSide == 'R' ? 'L' : 'R';
+  int32_t today;
+  if (!localDay(today)) return LAST_SHOT_SIDE;
+  return sideOf(scheduledShot(today));
 }
 
-// Records today's shot when one is due or missed.  False if none is.
+// Records the latest scheduled shot as taken when it's due or missed.  False if
+// there's none.
 static bool recordShot() {
   int32_t today;
   if (shotState() == SHOT_NONE || !localDay(today)) return false;
-  lastShotSide = shotSide();
-  lastShotDay = today;
-  prefs.putInt("shotday", lastShotDay);
-  prefs.putUChar("shotside", lastShotSide);
-  Serial.printf("Shot recorded: day %ld, side %c\n", (long)lastShotDay, lastShotSide);
+  doneShotDay = scheduledShot(today);
+  lastShotSide = sideOf(doneShotDay);
+  prefs.putInt("shotdone", doneShotDay);
+  Serial.printf("Shot recorded: day %ld, side %c\n", (long)doneShotDay, lastShotSide);
   return true;
 }
 
@@ -858,7 +878,7 @@ void loop() {
   // Don't show old weather as if it were current.
   if (forecast.valid && millis() - forecast.fetchedMs > STALE_HOURS * 3600000UL) forecast.valid = false;
 
-  // Shaking the toy when a shot is due or missed records it as taken today.
+  // Shaking the toy when a shot is due or missed records it as taken.
   ShotState shot = shotState();
   if (shot != SHOT_NONE && shaken() && recordShot()) {
     for (uint32_t i = 0; i <= 8; i++) {
