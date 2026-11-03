@@ -59,8 +59,8 @@
 // shaken or the next shot day comes.  Changing these values clears the record.
 #define SHOT_EVERY_DAYS 3
 #define LAST_SHOT_YEAR 2026
-#define LAST_SHOT_MONTH 10
-#define LAST_SHOT_DAY 22      // Thursday
+#define LAST_SHOT_MONTH 11
+#define LAST_SHOT_DAY 2       // Monday
 #define LAST_SHOT_SIDE 'R'    // side of that shot, 'L' or 'R'
 
 // A shake is SHAKE_JOLTS jolts above SHAKE_G (in g; 1 g is resting) within

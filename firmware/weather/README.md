@@ -27,7 +27,7 @@ Temperatures of 100° and above, or -10° and below, don't fit in 8 columns, so 
 ### Shot schedule
 
 A shot every `SHOT_EVERY_DAYS` days (3: ten shots in any 30 days), alternating sides, counted from
-the `LAST_SHOT_*` date and side in [src/config.h](src/config.h): Thursday 22 Oct 2026, right side.
+the `LAST_SHOT_*` date and side in [src/config.h](src/config.h): Monday 2 Nov 2026, right side.
 The calendar is fixed: a late shot doesn't move the next one. Shaking the toy records the latest
 scheduled shot as taken. The toy saves that one date, so it survives restarts and updates. Changing
 the `LAST_SHOT_*` values and reflashing clears it. A shake is four jolts above 2 g within 1.5 s; tilting the toy or
