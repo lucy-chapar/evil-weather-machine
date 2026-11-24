@@ -7,7 +7,8 @@
 // a green dot in the bottom corner on the side to use; the injection schedule
 // comes from config.h.
 // Forecasts come from Open-Meteo (no API key).  WiFi is set up from a phone
-// through the "DigitalSand-Weather" access point on first boot.
+// through the "DigitalSand-Weather" access point on first boot.  After that the
+// toy prefers PREFERRED_WIFI_SSID (config.h) with the same saved password.
 //
 // Firmware updates over WiFi: pio run -e ota -t upload (see platformio.ini).
 //
@@ -24,6 +25,7 @@
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <Wire.h>
+#include <esp_wifi.h>
 #include <time.h>
 
 #include "art.h"
@@ -823,6 +825,31 @@ static void setupOta() {
   Serial.printf("OTA ready: %s.local\n", OTA_HOSTNAME);
 }
 
+// Joins PREFERRED_WIFI_SSID with the password saved during WiFi setup.  The
+// saved network in flash is left alone, so it stays the fallback and the setup
+// portal still works if neither network is reachable.
+static bool connectPreferredWifi(WiFiManager& wm) {
+  if (strlen(PREFERRED_WIFI_SSID) == 0) return false;
+  WiFi.mode(WIFI_STA);
+  String savedSsid = wm.getWiFiSSID(true);
+  if (savedSsid.isEmpty() || savedSsid == PREFERRED_WIFI_SSID) return false;  // nothing saved, or autoConnect joins it anyway
+  String pass = wm.getWiFiPass(true);
+  wifi_config_t saved;
+  esp_wifi_get_config(WIFI_IF_STA, &saved);
+
+  esp_wifi_set_storage(WIFI_STORAGE_RAM);  // don't overwrite the saved network
+  Serial.printf("Trying %s\n", PREFERRED_WIFI_SSID);
+  WiFi.begin(PREFERRED_WIFI_SSID, pass.c_str());
+  bool ok = WiFi.waitForConnectResult(PREFERRED_WIFI_TIMEOUT_MS) == WL_CONNECTED;
+  if (!ok) {
+    Serial.printf("Couldn't join %s, falling back to %s\n", PREFERRED_WIFI_SSID, savedSsid.c_str());
+    WiFi.disconnect();
+    esp_wifi_set_config(WIFI_IF_STA, &saved);
+  }
+  esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+  return ok;
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -849,7 +876,7 @@ void setup() {
   wm.setAPCallback([](WiFiManager*) { drawIcon(ICON_WIFI_SETUP, 0); });
   wm.setConfigPortalTimeout(300);
   drawSpinner(0);
-  if (!wm.autoConnect("DigitalSand-Weather")) ESP.restart();
+  if (!connectPreferredWifi(wm) && !wm.autoConnect("DigitalSand-Weather")) ESP.restart();
   WiFi.setAutoReconnect(true);
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   setupOta();

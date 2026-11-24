@@ -80,7 +80,9 @@ ESPHome web installer, as in the kit instructions.
    the rest of the left column blue. If the pattern is somewhere else, change `MATRIX_ROTATION`,
    `MATRIX_FLIP_X` or `MATRIX_SERPENTINE` in [src/config.h](src/config.h).
 2. **WiFi setup (blue WiFi symbol).** On a phone, join the `DigitalSand-Weather` network.
-   Pick your WiFi network on the page that opens, and the toy remembers it.
+   Pick your WiFi network on the page that opens, and the toy remembers it. On later boots it first
+   tries `PREFERRED_WIFI_SSID` from [src/config.h](src/config.h) (`WeezyNet 2.4ghz`) with the same
+   password, and falls back to the network you picked.
 3. **Forecast.** A spinning blue dot means it's fetching. A red X means it couldn't get a forecast,
    and it retries every 2 minutes.
 

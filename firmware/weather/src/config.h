@@ -16,6 +16,13 @@
 // at least this many percent.
 #define PRECIP_SHOW_MIN 20
 
+// ---- WiFi -------------------------------------------------------------------
+// At boot the toy first tries this 2.4 GHz network with the password saved
+// during WiFi setup, then falls back to the saved network (and the setup portal).
+// Leave empty to only use the saved network.
+#define PREFERRED_WIFI_SSID "WeezyNet 2.4ghz"
+#define PREFERRED_WIFI_TIMEOUT_MS 15000
+
 // ---- Over-the-air updates ----------------------------------------------------
 // The toy shows up on the network as OTA_HOSTNAME.local.  The password is set
 // in ota_password.ini (not committed; see ota_password.example.ini), which
